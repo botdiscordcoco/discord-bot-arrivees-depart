@@ -5,6 +5,8 @@ from dotenv import load_dotenv
 from datetime import datetime
 import asyncio
 import logging
+from threading import Thread
+from flask import Flask
 
 # Configuration du logging sécurisé
 logging.basicConfig(
@@ -12,6 +14,26 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# Serveur web simple pour Render
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "Bot Discord Arrivées/Départ est en ligne !"
+
+@app.route('/status')
+def status():
+    return {"status": "online", "bot": "discord-arrivees-depart"}
+
+def run_flask():
+    port = int(os.environ.get('PORT', 8080))
+    app.run(host='0.0.0.0', port=port)
+
+def keep_alive():
+    t = Thread(target=run_flask)
+    t.daemon = True
+    t.start()
 
 # Charger les variables d'environnement
 load_dotenv()
@@ -342,6 +364,9 @@ async def on_error(event, *args, **kwargs):
 # Point d'entrée sécurisé
 if __name__ == "__main__":
     logger.info("🚀 Démarrage du bot sécurisé...")
+    
+    # Démarrer le serveur web pour Render
+    keep_alive()
     
     try:
         bot.run(TOKEN, log_handler=None)  # Désactiver les logs Discord par défaut
