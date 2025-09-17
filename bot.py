@@ -284,41 +284,68 @@ async def on_voice_state_update(member, before, after):
         except Exception as e:
             logger.error(f"❌ Erreur générale déconnexion: {e}")
     
-    # Cas 3: Changement entre salons vocaux autorisés
+    # Cas 3: Changement entre salons vocaux
     elif (before.channel is not None and after.channel is not None and 
           before.channel != after.channel):
         
         logger.info(f"🎯 CHANGEMENT: {safe_username} {before.channel.name} → {after.channel.name}")
         
-        # Notification de départ (si c'était dans un salon autorisé)
-        if (before.channel.category and validate_category(before.channel.category.name)):
+        # Vérifier si les salons sont dans la catégorie autorisée
+        before_is_monitored = (before.channel.category and validate_category(before.channel.category.name))
+        after_is_monitored = (after.channel.category and validate_category(after.channel.category.name))
+        
+        # Cas 3a: Départ d'un salon surveillé vers un salon NON surveillé
+        if before_is_monitored and not after_is_monitored:
             try:
                 safe_display_name = discord.utils.escape_markdown(member.display_name)
-                safe_channel_name = discord.utils.escape_markdown(after.channel.name)
-                leave_message = f"📤 **{safe_display_name}** est parti vers #{safe_channel_name}"
+                leave_message = f"❌ **{safe_display_name}** a quitté le salon"
                 
                 await before.channel.send(leave_message)
-                logger.info(f"✅ Message départ envoyé pour {safe_username}")
+                logger.info(f"✅ Message départ (vers non-surveillé) envoyé pour {safe_username}")
                 
             except discord.HTTPException as e:
                 logger.error(f"❌ Erreur envoi message départ: {e}")
             except Exception as e:
                 logger.error(f"❌ Erreur générale départ: {e}")
         
-        # Notification d'arrivée (si c'est dans un salon autorisé)
-        if (after.channel.category and validate_category(after.channel.category.name)):
+        # Cas 3b: Arrivée d'un salon NON surveillé vers un salon surveillé
+        elif not before_is_monitored and after_is_monitored:
             try:
                 safe_display_name = discord.utils.escape_markdown(member.display_name)
-                safe_channel_name = discord.utils.escape_markdown(before.channel.name)
-                arrive_message = f"📥 **{safe_display_name}** est arrivé depuis #{safe_channel_name}"
+                join_message = f"🔗 **{safe_display_name}** a rejoint le salon"
                 
-                await after.channel.send(arrive_message)
-                logger.info(f"✅ Message arrivée envoyé pour {safe_username}")
+                await after.channel.send(join_message)
+                logger.info(f"✅ Message arrivée (depuis non-surveillé) envoyé pour {safe_username}")
                 
             except discord.HTTPException as e:
                 logger.error(f"❌ Erreur envoi message arrivée: {e}")
             except Exception as e:
                 logger.error(f"❌ Erreur générale arrivée: {e}")
+        
+        # Cas 3c: Changement entre deux salons surveillés - UN SEUL MESSAGE
+        elif before_is_monitored and after_is_monitored:
+            try:
+                safe_display_name = discord.utils.escape_markdown(member.display_name)
+                safe_before_name = discord.utils.escape_markdown(before.channel.name)
+                safe_after_name = discord.utils.escape_markdown(after.channel.name)
+                
+                # Message de départ dans l'ancien salon
+                leave_message = f"📤 **{safe_display_name}** est parti vers #{safe_after_name}"
+                await before.channel.send(leave_message)
+                
+                # Message d'arrivée dans le nouveau salon (DIFFÉRENT)
+                arrive_message = f"📥 **{safe_display_name}** est arrivé depuis #{safe_before_name}"
+                await after.channel.send(arrive_message)
+                
+                logger.info(f"✅ Messages changement envoyés pour {safe_username}")
+                
+            except discord.HTTPException as e:
+                logger.error(f"❌ Erreur envoi message changement: {e}")
+            except Exception as e:
+                logger.error(f"❌ Erreur générale changement: {e}")
+        
+        # Cas 3d: Changement entre deux salons NON surveillés - Ne rien faire
+        # (Ce cas ne devrait pas arriver car on a filtré avec is_relevant_change)
 
 @bot.command(name='status')
 async def status_command(ctx):
