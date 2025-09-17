@@ -7,6 +7,8 @@ import asyncio
 import logging
 from threading import Thread
 from flask import Flask
+import time
+import json
 
 # Configuration du logging sécurisé
 logging.basicConfig(
@@ -15,20 +17,75 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Serveur web simple pour Render
+# Serveur web optimisé pour uptime
 app = Flask('')
+
+# Variables pour le monitoring
+start_time = time.time()
+ping_count = 0
 
 @app.route('/')
 def home():
     return "Bot Discord Arrivées/Départ est en ligne !"
 
+@app.route('/ping')
+def ping():
+    """Endpoint ultra-rapide pour uptime monitoring"""
+    global ping_count
+    ping_count += 1
+    return {"pong": True, "timestamp": int(time.time()), "ping_count": ping_count}
+
 @app.route('/status')
 def status():
-    return {"status": "online", "bot": "discord-arrivees-depart"}
+    """Endpoint détaillé avec informations complètes"""
+    global ping_count
+    ping_count += 1
+    uptime = int(time.time() - start_time)
+    
+    # Vérifier l'état du bot
+    bot_status = "online" if bot.is_ready() else "connecting"
+    guild_count = len(bot.guilds) if bot.is_ready() else 0
+    
+    return {
+        "status": bot_status,
+        "bot": "discord-arrivees-depart", 
+        "uptime_seconds": uptime,
+        "uptime_formatted": f"{uptime // 3600}h {(uptime % 3600) // 60}m {uptime % 60}s",
+        "ping_count": ping_count,
+        "guilds": guild_count,
+        "timestamp": int(time.time()),
+        "user_id": str(bot.user.id) if bot.user else None,
+        "latency_ms": round(bot.latency * 1000, 2) if bot.is_ready() else None
+    }
+
+@app.route('/health')
+def health():
+    """Vérification de santé détaillée"""
+    try:
+        is_healthy = bot.is_ready() and len(bot.guilds) > 0
+        
+        response_data = {
+            "healthy": is_healthy,
+            "bot_ready": bot.is_ready(),
+            "guilds_connected": len(bot.guilds) if bot.is_ready() else 0,
+            "latency_ms": round(bot.latency * 1000, 2) if bot.is_ready() else None,
+            "timestamp": int(time.time()),
+            "uptime_seconds": int(time.time() - start_time)
+        }
+        
+        return response_data, 200 if is_healthy else 503
+        
+    except Exception as e:
+        logger.error(f"Health check error: {e}")
+        return {"healthy": False, "error": "Health check failed", "timestamp": int(time.time())}, 503
 
 def run_flask():
     port = int(os.environ.get('PORT', 8080))
-    app.run(host='0.0.0.0', port=port)
+    # Désactiver les logs Flask pour éviter le spam
+    log = logging.getLogger('werkzeug')
+    log.setLevel(logging.WARNING)
+    
+    app.run(host='0.0.0.0', port=port, debug=False)
 
 def keep_alive():
     t = Thread(target=run_flask)
@@ -111,6 +168,8 @@ async def on_ready():
     """Événement déclenché quand le bot est prêt"""
     logger.info(f'✅ {bot.user} est connecté et prêt!')
     logger.info(f'📊 Serveurs connectés: {len(bot.guilds)}')
+    logger.info(f'🔗 URL du bot: https://discord-bot-arrivees-depart.onrender.com')
+    logger.info(f'⚡ Latence: {round(bot.latency * 1000, 2)}ms')
     
     # Validation de sécurité : vérifier qu'on est sur le bon serveur
     guild = bot.get_guild(GUILD_ID)
@@ -144,6 +203,13 @@ async def on_ready():
             logger.info(f'   🔊 {vc.name} (ID: {vc.id}) → {status} Peut écrire')
     else:
         logger.warning(f'❌ Catégorie "「 Salons vocaux 」" non trouvée !')
+    
+    # Log des endpoints disponibles
+    logger.info("🌐 Endpoints disponibles:")
+    logger.info("   📍 / → Page d'accueil")
+    logger.info("   📍 /ping → Monitoring rapide")
+    logger.info("   📍 /status → Statut détaillé")
+    logger.info("   📍 /health → Vérification santé")
 
 @bot.event
 async def on_voice_state_update(member, before, after):
@@ -279,6 +345,10 @@ async def status_command(ctx):
         for vc in voice_category.voice_channels:
             total_voice_users += len(vc.members)
     
+    # Calculer l'uptime
+    uptime_seconds = int(time.time() - start_time)
+    uptime_formatted = f"{uptime_seconds // 3600}h {(uptime_seconds % 3600) // 60}m {uptime_seconds % 60}s"
+    
     embed = discord.Embed(
         title="📊 Statut du bot Arrivées/Départ",
         color=0x0099ff,
@@ -289,7 +359,16 @@ async def status_command(ctx):
     embed.add_field(name="📁 Catégorie surveillée", value="「 Salons vocaux 」", inline=True)
     embed.add_field(name="🔊 Salons vocaux", value=f"{voice_channels_count}", inline=True)
     embed.add_field(name="👥 Utilisateurs en vocal", value=f"{total_voice_users}", inline=True)
+    embed.add_field(name="⚡ Latence", value=f"{round(bot.latency * 1000, 2)}ms", inline=True)
+    embed.add_field(name="⏱️ Uptime", value=uptime_formatted, inline=True)
+    embed.add_field(name="📊 Pings reçus", value=f"{ping_count}", inline=True)
     embed.add_field(name="🔒 Sécurité", value="✅ Activée", inline=True)
+    
+    embed.add_field(
+        name="🌐 Endpoints", 
+        value="• [/ping](https://discord-bot-arrivees-depart.onrender.com/ping)\n• [/status](https://discord-bot-arrivees-depart.onrender.com/status)\n• [/health](https://discord-bot-arrivees-depart.onrender.com/health)", 
+        inline=False
+    )
     
     await ctx.send(embed=embed)
     logger.info(f"📊 Commande status exécutée par {ctx.author.display_name}")
@@ -343,6 +422,33 @@ async def list_channels(ctx):
     await ctx.send(embed=embed)
     logger.info(f"📋 Commande channels exécutée par {ctx.author.display_name}")
 
+@bot.command(name='uptime')
+async def uptime_command(ctx):
+    """Commande pour vérifier l'uptime et les statistiques"""
+    # Validation de sécurité
+    if not validate_guild(ctx.guild.id):
+        logger.warning(f"⚠️ Tentative d'utilisation de !uptime depuis un serveur non autorisé")
+        return
+    
+    uptime_seconds = int(time.time() - start_time)
+    uptime_formatted = f"{uptime_seconds // 3600}h {(uptime_seconds % 3600) // 60}m {uptime_seconds % 60}s"
+    
+    embed = discord.Embed(
+        title="⏱️ Statistiques d'uptime",
+        color=0x00ff00,
+        timestamp=datetime.now()
+    )
+    
+    embed.add_field(name="🚀 Démarrage", value=f"<t:{int(start_time)}:F>", inline=True)
+    embed.add_field(name="⏱️ Uptime", value=uptime_formatted, inline=True)
+    embed.add_field(name="📊 Pings reçus", value=f"{ping_count}", inline=True)
+    embed.add_field(name="⚡ Latence", value=f"{round(bot.latency * 1000, 2)}ms", inline=True)
+    embed.add_field(name="🔗 URL", value="[discord-bot-arrivees-depart.onrender.com](https://discord-bot-arrivees-depart.onrender.com)", inline=True)
+    embed.add_field(name="📡 Status", value="[/status endpoint](https://discord-bot-arrivees-depart.onrender.com/status)", inline=True)
+    
+    await ctx.send(embed=embed)
+    logger.info(f"⏱️ Commande uptime exécutée par {ctx.author.display_name}")
+
 @bot.event
 async def on_command_error(ctx, error):
     """Gestion sécurisée des erreurs de commandes"""
@@ -363,7 +469,8 @@ async def on_error(event, *args, **kwargs):
 
 # Point d'entrée sécurisé
 if __name__ == "__main__":
-    logger.info("🚀 Démarrage du bot sécurisé...")
+    logger.info("🚀 Démarrage du bot sécurisé avec optimisations uptime...")
+    logger.info("🌐 Endpoints configurés: /, /ping, /status, /health")
     
     # Démarrer le serveur web pour Render
     keep_alive()
